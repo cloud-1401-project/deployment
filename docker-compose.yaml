@@ -3,7 +3,7 @@ services:
   auth_api_server:
     container_name: "auth_api_server"
     build:
-      context: .
+      context: ./auth-service
       dockerfile: "Dockerfile.api"
       cache_from:
         - rust:latest
@@ -21,6 +21,7 @@ services:
       - "redis_auth"
     networks:
       - cloud_dev_internal_net
+      - auth_network
     tty: true
     ports:
       - "8080:8080"
@@ -28,7 +29,7 @@ services:
   auth_grpc_server:
     container_name: "auth_grpc_server"
     build:
-      context: .
+      context: ./auth-service
       dockerfile: "Dockerfile.grpc"
       cache_from:
         - rust:latest
@@ -46,6 +47,7 @@ services:
       - "redis_auth"
     networks:
       - cloud_dev_internal_net
+      - auth_network
     tty: true
     ports:
       - "50051:50051"
@@ -60,7 +62,7 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - cloud_dev_internal_net
+      - auth_network
 
   mongodb_auth:
     image: mongo:latest
@@ -76,14 +78,83 @@ services:
       MONGO_INITDB_ROOT_USERNAME: "clouddev"
       MONGO_INITDB_ROOT_PASSWORD: "12345678"
     networks:
+      - auth_network
+
+
+
+
+  product_api:
+    container_name: "product-api"
+    build:
+      context: ./product_service
+      dockerfile: "Dockerfile.api"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+    restart: on-failure
+    links:
+      - "auth_grpc_server"
+      - "product_service_database"
+    depends_on:
+      - "auth_grpc_server"
+      - "product_service_database"
+    networks:
       - cloud_dev_internal_net
+      - product_network
+    tty: true
+    ports:
+      - "8000:8000"
+
+
+  product_grpc:
+    container_name: "product-grpc"
+    build:
+      context: ./product_service
+      dockerfile: "Dockerfile.grpc"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+    restart: on-failure
+    links:
+      - "auth_grpc_server"
+      - "product_service_database"
+    depends_on:
+      - "auth_grpc_server"
+      - "product_service_database"
+    networks:
+      - cloud_dev_internal_net
+      - product_network
+    tty: true
+    ports:
+      - "50051:50052"
+
+  product_service_database:
+    image: postgres:12
+    environment:
+      PGDATA: '/var/lib/postgresql/data'
+      POSTGRES_PASSWORD: '123456'
+      POSTGRES_USER: 'fastapi'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - product_network
 
 networks:
   cloud_dev_internal_net:
+    driver: bridge
+  product_network:
+    driver: bridge
+  auth_network:
     driver: bridge
 
 volumes:
   redis_data:
     external: false
   mongodb_data:
+      driver: local
+  postgres_data:
       driver: local
